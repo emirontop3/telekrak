@@ -58,7 +58,7 @@ def process_obfuscation(message):
         
         # ÇÖZÜM: Dosyayı diske yazmak yerine belleğe (RAM) yazıyoruz
         bio = io.BytesIO()
-        bio.name = "protected_script.tx5"
+        bio.name = "protected_script.txt"
         bio.write(protected_code.encode('utf-8'))
         bio.seek(0) # İmleci dosya başına getir
         
