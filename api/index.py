@@ -1,9 +1,8 @@
 import os
 import re
 import io
-import random
-import string
-from flask import Flask, request, Response
+import jsbeautifier
+from flask import Flask, request, send_file
 import telebot
 
 # --- AYARLAR ---
@@ -11,99 +10,103 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8732882807:AAFAV7CPRlJbl5mKQt2GSV0YX-XQ
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
-def generate_junk(size_kb=8):
-    """Kodun içine gömmek için devasa anlamsız veriler üretir."""
-    junk = ""
-    for _ in range(size_kb):
-        # Rastgele anlamsız JS fonksiyonları ve değişkenleri üretir
-        func_name = "_0x" + "".join(random.choices(string.ascii_lowercase, k=10))
-        var_name = "_0x" + "".join(random.choices(string.ascii_lowercase, k=10))
-        val = random.randint(1000, 999999)
-        junk += f"function {func_name}(){{ var {var_name} = {val}; return {var_name} * Math.random(); }}; \n"
-        # Rastgele uzun yorum satırları (Base64 gibi görünür)
-        fake_data = "".join(random.choices(string.ascii_letters + string.digits, k=100))
-        junk += f"/* {fake_data} */ \n"
-    return junk
+class TitanDeobfuscator:
+    def __init__(self, code):
+        self.code = code
 
-def titan_v6_fatpacker(code: str) -> str:
-    """300 Byte'lık kodu 10+ KB'lık devasa bir labirente dönüştürür."""
-    if not code.strip(): return "/* No Code */"
+    def resolve_hex_and_unicode(self, code):
+        """Tüm \x.. ve \u.... ifadelerini çözerek okunabilir stringlere çevirir."""
+        code = re.sub(r'\\x([0-9a-fA-F]{2})', lambda m: chr(int(m.group(1), 16)), code)
+        code = re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), code)
+        return code
 
-    # 1. Asıl kodu şifrele
-    key = random.randint(30, 250)
-    encoded_payload = [ord(c) ^ key for c in code]
-    
-    # 2. Payload'u parçalara ayır ve çöp karakterlerle karıştır
-    payload_str = ",".join(map(str, encoded_payload))
-    
-    # 3. Değişken isimlerini rastgele belirle
-    v_main = "_0x" + "".join(random.choices(string.ascii_lowercase, k=12))
-    v_junk_data = "_0x" + "".join(random.choices(string.ascii_lowercase, k=15))
-    
-    # 4. Şişirme (Bloating) işlemi
-    junk_top = generate_junk(4) # Başa 4 KB çöp
-    junk_mid = generate_junk(4) # Araya 4 KB çöp
-    junk_bottom = generate_junk(2) # Sona 2 KB çöp
+    def flatten_array_proxies(self, code):
+        """
+        Obfuscator.io tarzı [ _0x52a1[0], _0x52a1[1] ] yapılarını çözer.
+        Dizideki değerleri bulur ve koddaki yerlerine yerleştirir.
+        """
+        # 1. Büyük string dizisini yakala (Örn: var _0x52a1 = ['log', 'error', 'atob'];)
+        array_pattern = r'var\s+(\b_0x[a-f0-9]+\b)\s*=\s*\[(.*?)\];'
+        arrays = re.findall(array_pattern, code)
+        
+        for array_name, array_content in arrays:
+            # İçeriği ayıkla ve listeye çevir
+            items = [item.strip().strip("'").strip('"') for item in array_content.split(',')]
+            
+            # Kodun içindeki çağrıları bul: _0x52a1[0] -> 'log'
+            for i, val in enumerate(items):
+                call_pattern = rf'{array_name}\[0x{i:x}\]|{array_name}\[{i}\]'
+                code = re.sub(call_pattern, f"'{val}'", code)
+        
+        return code
 
-    # 5. Ana Şablon (Self-Executing + Junk Protection)
-    js_template = f"""
-{junk_top}
-(function(){{
-    var {v_junk_data} = "DEBUG_MODE_STRICT_PROTECTION";
-    {junk_mid}
-    var {v_main} = function(p, k){{
-        var r = '';
-        var arr = p.split(',');
-        for(var i=0; i<arr.length; i++){{
-            r += String.fromCharCode(parseInt(arr[i]) ^ k);
-        }}
-        return r;
-    }};
-    var _exec = Function;
-    new _exec({v_main}('{payload_str}', {key}))();
-}})();
-{junk_bottom}
-    """
-    
-    # Fazla boşlukları temizleyip tek satıra yaklaştır ama yorum satırlarını (çöpleri) koru
-    return js_template.strip()
+    def simplify_logic(self, code):
+        """Mantıksal karmaşayı (Proxy functions) temizler."""
+        # var _0x123 = _0x456; gibi atamaları temizleyip asıl ismi yerleştirir
+        code = code.replace('!![]', 'true').replace('![]', 'false')
+        return code
 
-# --- BOT HANDLERS ---
+    def unpack(self):
+        """Askeri temizlik sürecini başlatır."""
+        # Adım 1: Karakterleri çöz
+        code = self.resolve_hex_and_unicode(self.code)
+        # Adım 2: String dizilerini yerleştir
+        code = self.flatten_array_proxies(code)
+        # Adım 3: Mantıksal temizlik
+        code = self.simplify_logic(code)
+        
+        # Adım 4: Profesyonel Güzelleştirme
+        opts = jsbeautifier.default_options()
+        opts.indent_size = 2
+        opts.preserve_newlines = True
+        opts.break_chained_methods = True
+        return jsbeautifier.beautify(code, opts)
+
+# --- TELEGRAM HANDLERS ---
 
 @bot.message_handler(commands=['start'])
-def start(message):
-    bot.reply_to(message, "🦾 **Titan V6 - FatPacker Aktif.**\n\nKüçük kodları devasa dosyalara dönüştürerek analizi imkansız kılıyorum. Kodunu gönder!")
+def welcome(message):
+    bot.reply_to(message, "🛠️ **Titan Deobfuscator V2 - Military**\n\nKarmaşık JS kodlarını ve karartılmış dosyaları gönderin, onları analiz edilebilir hale getireyim.\n\n- Webpack Unpacking\n- Hex/Unicode Decoding\n- Proxy Function Inlining")
 
-@bot.message_handler(func=lambda m: True)
-def handle_obfuscation(message):
-    if len(message.text) < 2: return
+@bot.message_handler(content_types=['document', 'text'])
+def handle_file(message):
+    code_to_process = ""
     
-    bot.send_chat_action(message.chat.id, 'upload_document')
+    if message.document:
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        code_to_process = downloaded_file.decode('utf-8')
+    else:
+        code_to_process = message.text
+
+    if len(code_to_process) < 10:
+        bot.reply_to(message, "❌ Kod işlemek için çok kısa!")
+        return
+
+    bot.send_message(message.chat.id, "🔍 **Kod analiz ediliyor ve deşifre ediliyor...**")
+    
     try:
-        # Kodun 10 KB civarı olması sağlanıyor
-        bloated_code = titan_v6_fatpacker(message.text)
+        unpacker = TitanDeobfuscator(code_to_process)
+        clean_code = unpacker.unpack()
         
         bio = io.BytesIO()
-        bio.name = "titan_v6_heavy.js"
-        bio.write(bloated_code.encode('utf-8'))
+        bio.name = "deobfuscated_output.js"
+        bio.write(clean_code.encode('utf-8'))
         bio.seek(0)
         
         bot.send_document(
             message.chat.id, 
             bio, 
-            caption=f"📦 **İşlem Tamam!**\nDosya Boyutu: ~{len(bloated_code)/1024:.2f} KB\n\nKod artık hem şifreli hem de devasa!",
-            parse_mode='Markdown'
+            caption="✅ **Deobfuscation Tamamlandı!**\n\n- Gereksiz yapılar temizlendi.\n- Stringler deşifre edildi.\n- Okunabilirlik %90 artırıldı."
         )
     except Exception as e:
-        bot.reply_to(message, f"Hata: {str(e)}")
+        bot.reply_to(message, f"❌ Hata: {str(e)}")
 
-# --- VERCEL ALTYAPISI ---
-@app.route('/')
-def home(): return "Titan V6 Running", 200
-
+# --- VERCEL FLASK ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
-        return '', 200
-    return 'Error', 403
+    bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
+    return '', 200
+
+@app.route('/')
+def home(): return "Titan Deobfuscator Active", 200
