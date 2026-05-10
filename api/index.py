@@ -23,7 +23,11 @@ def advanced_lua_obfuscate(code):
         return f"((0x{num+offset:x} - {offset}))"
 
     # Sayıları bul ve değiştir
-    code = re.sub(r'\b\countd+\b', math_obf, code)
+    # Hatalı olan satır:
+    # code = re.sub(r'\b\countd+\b', math_obf, code)
+
+    # Doğru olan (sadece sayıları yakalar):
+    code = re.sub(r'\b\d+\b', math_obf, code)
 
     # 3. Değişken İsimlerini Karmaşıklaştır
     var_map = {}
