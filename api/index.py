@@ -2,137 +2,108 @@ import os
 import re
 import io
 import random
-import logging
+import string
 from flask import Flask, request, Response
 import telebot
 
-# --- AYARLAR VE YAPILANDIRMA ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
+# --- AYARLAR ---
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8732882807:AAFAV7CPRlJbl5mKQt2GSV0YX-XQSBT-iyQ")
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
-# --- ANA FONKSİYONLAR ---
+def generate_junk(size_kb=8):
+    """Kodun içine gömmek için devasa anlamsız veriler üretir."""
+    junk = ""
+    for _ in range(size_kb):
+        # Rastgele anlamsız JS fonksiyonları ve değişkenleri üretir
+        func_name = "_0x" + "".join(random.choices(string.ascii_lowercase, k=10))
+        var_name = "_0x" + "".join(random.choices(string.ascii_lowercase, k=10))
+        val = random.randint(1000, 999999)
+        junk += f"function {func_name}(){{ var {var_name} = {val}; return {var_name} * Math.random(); }}; \n"
+        # Rastgele uzun yorum satırları (Base64 gibi görünür)
+        fake_data = "".join(random.choices(string.ascii_letters + string.digits, k=100))
+        junk += f"/* {fake_data} */ \n"
+    return junk
 
-def pro_js_obfuscator(code: str) -> str:
-    """
-    Titan V4 - XOR Payload Packer Algoritması
-    Kodu kelime kelime değiştirmek yerine tamamen şifreler (XOR Encryption).
-    Bu sayede kod %100 bozulmadan çalışır ama dışarıdan asla okunamaz.
-    """
-    code = code.strip()
-    if not code: 
-        return "/* HATA: Kod bulunamadı */"
+def titan_v6_fatpacker(code: str) -> str:
+    """300 Byte'lık kodu 10+ KB'lık devasa bir labirente dönüştürür."""
+    if not code.strip(): return "/* No Code */"
 
-    # 1. XOR Şifreleme Anahtarı (Her şifrelemede kodu bambaşka gösterir)
-    xor_key = random.randint(10, 250)
+    # 1. Asıl kodu şifrele
+    key = random.randint(30, 250)
+    encoded_payload = [ord(c) ^ key for c in code]
     
-    # 2. Orijinal kodu XOR ile şifreleyerek tamamen sayısal bir diziye çevir
-    encoded_array = [str(ord(c) ^ xor_key) for c in code]
-    array_str = ",".join(encoded_array)
+    # 2. Payload'u parçalara ayır ve çöp karakterlerle karıştır
+    payload_str = ",".join(map(str, encoded_payload))
     
-    # 3. Şifre çözücü (Decoder) için rastgele karmaşık Hex değişken isimleri üret
-    v_data      = f"_0x{random.getrandbits(16):x}"
-    v_global    = f"_0x{random.getrandbits(16):x}"
-    v_string    = f"_0x{random.getrandbits(16):x}"
-    v_from_char = f"_0x{random.getrandbits(16):x}"
-    v_eval      = f"_0x{random.getrandbits(16):x}"
-    v_decoded   = f"_0x{random.getrandbits(16):x}"
-    v_i         = f"_0x{random.getrandbits(16):x}"
+    # 3. Değişken isimlerini rastgele belirle
+    v_main = "_0x" + "".join(random.choices(string.ascii_lowercase, k=12))
+    v_junk_data = "_0x" + "".join(random.choices(string.ascii_lowercase, k=15))
     
-    # 4. Şifre Çözücü JavaScript Çekirdeği
-    # Kritik JS kelimeleri string hex olarak gizlendi ('\x75\x6e...' = undefined vb.)
+    # 4. Şişirme (Bloating) işlemi
+    junk_top = generate_junk(4) # Başa 4 KB çöp
+    junk_mid = generate_junk(4) # Araya 4 KB çöp
+    junk_bottom = generate_junk(2) # Sona 2 KB çöp
+
+    # 5. Ana Şablon (Self-Executing + Junk Protection)
     js_template = f"""
-    var {v_data}=[{array_str}];
-    var {v_global}=typeof window!=='\\x75\\x6e\\x64\\x65\\x66\\x69\\x6e\\x65\\x64'?window:typeof global!=='\\x75\\x6e\\x64\\x65\\x66\\x69\\x6e\\x65\\x64'?global:this;
-    var {v_string}={v_global}['\\x53\\x74\\x72\\x69\\x6e\\x67'];
-    var {v_from_char}={v_string}['\\x66\\x72\\x6f\\x6d\\x43\\x68\\x61\\x72\\x43\\x6f\\x64\\x65'];
-    var {v_eval}={v_global}['\\x65\\x76\\x61\\x6c'];
-    var {v_decoded}='';
-    for(var {v_i}=0x0;{v_i}<{v_data}['\\x6c\\x65\\x6e\\x67\\x74\\x68'];{v_i}++){{
-    {v_decoded}+={v_from_char}({v_data}[{v_i}]^{hex(xor_key)});
-    }}
-    {v_eval}({v_decoded});
+{junk_top}
+(function(){{
+    var {v_junk_data} = "DEBUG_MODE_STRICT_PROTECTION";
+    {junk_mid}
+    var {v_main} = function(p, k){{
+        var r = '';
+        var arr = p.split(',');
+        for(var i=0; i<arr.length; i++){{
+            r += String.fromCharCode(parseInt(arr[i]) ^ k);
+        }}
+        return r;
+    }};
+    var _exec = Function;
+    new _exec({v_main}('{payload_str}', {key}))();
+}})();
+{junk_bottom}
     """
     
-    # 5. Kodu tek satıra indir (Aradaki tüm boşlukları yok et)
-    js_template = re.sub(r'\s+', ' ', js_template).strip()
+    # Fazla boşlukları temizleyip tek satıra yaklaştır ama yorum satırlarını (çöpleri) koru
+    return js_template.strip()
+
+# --- BOT HANDLERS ---
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "🦾 **Titan V6 - FatPacker Aktif.**\n\nKüçük kodları devasa dosyalara dönüştürerek analizi imkansız kılıyorum. Kodunu gönder!")
+
+@bot.message_handler(func=lambda m: True)
+def handle_obfuscation(message):
+    if len(message.text) < 2: return
     
-    # 6. Analizi zorlaştırmak için Anonim fonksiyona çöp (junk) parametreler göm
-    junk_id = f"0x{random.getrandbits(32):x}"
-    junk_func_name = f"_0xXOR_{random.getrandbits(16):x}"
-    
-    final_code = (
-        "/**\n"
-        " * TeleKrak JS Titan V4 - EXTREME XOR ENCRYPTION\n"
-        " * Warning: Protected against reversing & tampering.\n"
-        " */\n"
-        f";(function({junk_func_name}){{\n"
-        f" {js_template}\n"
-        f"}})( {junk_id} );"
-    )
-    return final_code
-
-# --- TELEGRAM BOT KOMUTLARI ---
-
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message: telebot.types.Message):
-    welcome_text = (
-        "🚀 *TeleKrak JS Titan V4*\n\n"
-        "Kodunu XOR Payload Packer ile %100 güvenli şifreliyor ve çalışma sistemini kesinlikle bozmuyorum.\n\n"
-        "👉 *Obfuscate etmek istediğin kodu gönder!*"
-    )
-    bot.reply_to(message, welcome_text, parse_mode='Markdown')
-
-@bot.message_handler(func=lambda m: True, content_types=['text'])
-def handle_obfuscation(message: telebot.types.Message):
-    if len(message.text.strip()) < 2:
-        bot.reply_to(message, "❌ *Hata:* Kod çok kısa!", parse_mode='Markdown')
-        return
-
     bot.send_chat_action(message.chat.id, 'upload_document')
-    
     try:
-        # Karartma işlemini yap (XOR Engine)
-        obfuscated_code = pro_js_obfuscator(message.text)
+        # Kodun 10 KB civarı olması sağlanıyor
+        bloated_code = titan_v6_fatpacker(message.text)
         
-        # Vercel RAM üzerinden sanal dosya oluşturma
         bio = io.BytesIO()
-        bio.name = "telekrak_titan_v4.js"
-        bio.write(obfuscated_code.encode('utf-8'))
+        bio.name = "titan_v6_heavy.js"
+        bio.write(bloated_code.encode('utf-8'))
         bio.seek(0)
-        
-        caption_text = (
-            "✅ <b>Şifreleme Başarılı!</b>\n\n"
-            "Kod <i>Titan V4 XOR Packer</i> ile kilitlendi. Sisteminin bozulma ihtimali ortadan kaldırıldı."
-        )
         
         bot.send_document(
             message.chat.id, 
             bio, 
-            caption=caption_text,
-            parse_mode='HTML'
+            caption=f"📦 **İşlem Tamam!**\nDosya Boyutu: ~{len(bloated_code)/1024:.2f} KB\n\nKod artık hem şifreli hem de devasa!",
+            parse_mode='Markdown'
         )
-        logger.info(f"V4 Şifreleme Tamamlandı - Chat ID: {message.chat.id}")
-        
     except Exception as e:
-        logger.error(f"İşlem Hatası: {str(e)}")
-        bot.reply_to(message, f"❌ <b>Sistem Hatası:</b>\n<code>{str(e)}</code>", parse_mode='HTML')
+        bot.reply_to(message, f"Hata: {str(e)}")
 
-# --- VERCEL FLASK WEBHOOK AYARLARI ---
-
-@app.route('/', methods=['GET'])
-def home():
-    return "🚀 TeleKrak Titan V4 (XOR Engine) is Running Active!", 200
+# --- VERCEL ALTYAPISI ---
+@app.route('/')
+def home(): return "Titan V6 Running", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return Response('OK', status=200)
-    
-    return Response('Forbidden', status=403)
+        bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
+        return '', 200
+    return 'Error', 403
