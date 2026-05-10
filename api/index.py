@@ -1,103 +1,96 @@
 import telebot
 import requests
-import pandas as pd
 from flask import Flask, request
 
+# Bot Tokenin
 TOKEN = "8732882807:AAFAV7CPRlJbl5mKQt2GSV0YX-XQSBT-iyQ"
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
 # --- ANALİZ MOTORU ---
 
-def get_deep_crypto_analysis(coin_id="bitcoin"):
-    """CoinGecko ve basit teknik analiz mantığı kullanarak veri çeker."""
+def get_deep_analysis(coin_id="bitcoin"):
     try:
-        # Market verilerini çek
+        # CoinGecko API üzerinden veri çekme
         url = f"https://api.coingecko.com/api/v3/coins/{coin_id.lower()}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false"
-        res = requests.get(url).json()
+        response = requests.get(url, timeout=10)
+        res = response.json()
         
         data = res['market_data']
         price = data['current_price']['usd']
         change_24h = data['price_change_percentage_24h']
-        high_24h = data['high_24h']['usd']
-        low_24h = data['low_24h']['usd']
         ath = data['ath']['usd']
+        market_cap = data['market_cap']['usd']
         
-        # Basit "Deep Analiz" Mantığı
-        sentiment = "NÖTR ⚖️"
-        if change_24h > 5: sentiment = "AŞIRI ALIM (BULLISH) 🔥"
-        elif change_24h < -5: sentiment = "AŞIRI SATIM (BEARISH) 🧊"
+        # Duyarlılık Analizi (Sentiment)
+        if change_24h > 7:
+            sentiment = "AŞIRI BOĞA (BULLISH) 🔥"
+        elif change_24h > 2:
+            sentiment = "POZİTİF (UPWARD) 📈"
+        elif change_24h < -7:
+            sentiment = "AŞIRI AYI (BEARISH) 🧊"
+        elif change_24h < -2:
+            sentiment = "NEGATİF (DOWNWARD) 📉"
+        else:
+            sentiment = "NÖTR / YATAY ⚖️"
         
         analysis = (
-            f"📊 <b>{res['name']} ({res['symbol'].upper()}) Derin Analiz</b>\n\n"
-            f"💰 <b>Güncel Fiyat:</b> ${price:,}\n"
+            f"📊 <b>{res['name']} ({res['symbol'].upper()}) Analiz</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 <b>Fiyat:</b> ${price:,.2f}\n"
             f"📈 <b>24s Değişim:</b> %{change_24h:.2f}\n"
-            f"🏔️ <b>24s En Yüksek:</b> ${high_24h:,}\n"
-            f"📉 <b>24s En Düşük:</b> ${low_24h:,}\n"
-            f"🏆 <b>Tüm Zamanlar Zirvesi (ATH):</b> ${ath:,}\n\n"
-            f"🧠 <b>Piyasa Duyarlılığı:</b> {sentiment}\n"
-            f"💡 <i>Öneri: ATH noktasından %{abs((price-ath)/ath*100):.1f} uzakta.</i>"
+            f"🏛️ <b>Market Hacmi:</b> ${market_cap:,.0f}\n"
+            f"🏔️ <b>Zirve Uzaklığı (ATH):</b> %{abs((price-ath)/ath*100):.1f}\n\n"
+            f"🧠 <b>Derin Duyarlılık:</b> {sentiment}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 <i>Veriler CoinGecko üzerinden anlık çekilmiştir.</i>"
         )
         return analysis
-    except Exception as e:
-        return f"Hata: Veri çekilemedi. (Coin adını doğru yazdığınızdan emin olun) {e}"
+    except Exception:
+        return "❌ Veri alınamadı. Sembolün doğru olduğundan emin ol (Örn: bitcoin, solana, ripple)."
 
-def get_stock_price(symbol):
-    """Global hisse senetleri için basit analiz."""
-    # Yahoo Finance üzerinden veri çekmek için hızlı bir API
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    res = requests.get(url, headers=headers).json()
-    
-    try:
-        price = res['chart']['result'][0]['meta']['regularMarketPrice']
-        prev_close = res['chart']['result'][0]['meta']['previousClose']
-        diff = ((price - prev_close) / prev_close) * 100
-        
-        return (
-            f"🍏 <b>Hisse Analizi: {symbol.upper()}</b>\n\n"
-            f"💵 <b>Fiyat:</b> ${price}\n"
-            f"📊 <b>Günlük Fark:</b> %{diff:.2f}\n"
-            f"📉 <b>Önceki Kapanış:</b> ${prev_close}"
-        )
-    except:
-        return "Hisse senedi bulunamadı."
-
-# --- BOT KOMUTLARI ---
+# --- BOT HANDLERS ---
 
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add("💎 Bitcoin Analiz", "🚀 Altcoin Analiz", "🍏 Hisse Senedi", "📈 Genel Durum")
-    bot.send_message(message.chat.id, "<b>TeleKrak Pro Analiz Paneline Hoş Geldin!</b>\n\nAnaliz etmek istediğin varlığı seç veya bir sembol gönder (Örn: /analiz ethereum)", parse_mode='HTML', reply_markup=markup)
+    markup.add("💎 Bitcoin", "🚀 Ethereum", "📊 Diğer Analizler", "🛠️ Yardım")
+    bot.send_message(
+        message.chat.id, 
+        "🚀 <b>TeleKrak Deep Analiz V10</b>\n\nAnaliz etmek istediğin varlığı seçebilir veya bota ismini yazabilirsin.", 
+        parse_mode='HTML', 
+        reply_markup=markup
+    )
 
-@bot.message_handler(func=lambda m: m.text == "💎 Bitcoin Analiz")
+@bot.message_handler(func=lambda m: m.text == "💎 Bitcoin")
 def btc_analiz(message):
-    bot.reply_to(message, "Bitcoin verileri analiz ediliyor...")
-    analysis = get_deep_crypto_analysis("bitcoin")
-    bot.send_message(message.chat.id, analysis, parse_mode='HTML')
+    bot.send_chat_action(message.chat.id, 'typing')
+    bot.send_message(message.chat.id, get_deep_analysis("bitcoin"), parse_mode='HTML')
 
-@bot.message_handler(commands=['analiz'])
-def custom_analiz(message):
-    msg = message.text.split()
-    if len(msg) > 1:
-        target = msg[1]
-        analysis = get_deep_crypto_analysis(target)
-        bot.send_message(message.chat.id, analysis, parse_mode='HTML')
-    else:
-        bot.reply_to(message, "Lütfen bir isim yazın. Örn: /analiz solana")
+@bot.message_handler(func=lambda m: m.text == "🚀 Ethereum")
+def eth_analiz(message):
+    bot.send_chat_action(message.chat.id, 'typing')
+    bot.send_message(message.chat.id, get_deep_analysis("ethereum"), parse_mode='HTML')
 
-@bot.message_handler(func=lambda m: m.text == "🍏 Hisse Senedi")
-def stock_prompt(message):
-    msg = bot.send_message(message.chat.id, "Analiz edilecek hisse sembolünü yaz (Örn: AAPL, TSLA, NVDA):")
-    bot.register_next_step_handler(msg, process_stock)
+@bot.message_handler(func=lambda m: m.text == "📊 Diğer Analizler")
+def other_analiz(message):
+    msg = bot.send_message(message.chat.id, "Analiz etmek istediğiniz coin adını küçük harflerle yazın (Örn: solana, cardano):")
+    bot.register_next_step_handler(msg, process_custom_analiz)
 
-def process_stock(message):
-    symbol = message.text.upper()
-    analysis = get_stock_price(symbol)
-    bot.send_message(message.chat.id, analysis, parse_mode='HTML')
+def process_custom_analiz(message):
+    bot.send_chat_action(message.chat.id, 'typing')
+    bot.send_message(message.chat.id, get_deep_analysis(message.text), parse_mode='HTML')
 
-# --- VERCEL GATEWAY ---
+# --- VERCEL ROUTING ---
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
+@app.route('/')
+def index():
+    return "Bot Aktif ve Çalışıyor!"
+
 @app.route('/webhook', methods=['POST'])
 def receive_update():
     if request.headers.get('content-type') == 'application/json':
@@ -106,3 +99,6 @@ def receive_update():
         bot.process_new_updates([update])
         return '', 200
     return 'Hata', 403
+
+if __name__ == "__main__":
+    app.run()
