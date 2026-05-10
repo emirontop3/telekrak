@@ -1,4 +1,3 @@
-flask
 pyTelegramBotAPI
-SpeechRecognition
-pydub
+requests
+pandas
