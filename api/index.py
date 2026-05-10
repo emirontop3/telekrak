@@ -2,103 +2,105 @@ import telebot
 import requests
 from flask import Flask, request
 
-# Bot Tokenin
+# Bot Bilgileri
 TOKEN = "8732882807:AAFAV7CPRlJbl5mKQt2GSV0YX-XQSBT-iyQ"
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
-# --- ANALİZ MOTORU ---
+# --- DERİN ANALİZ MOTORU ---
 
-def get_deep_analysis(coin_id="bitcoin"):
+def get_pro_analysis(coin_id="bitcoin"):
     try:
-        # CoinGecko API üzerinden veri çekme
-        url = f"https://api.coingecko.com/api/v3/coins/{coin_id.lower()}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false"
-        response = requests.get(url, timeout=10)
-        res = response.json()
+        # CoinGecko Pro-Data Endpoint
+        url = f"https://api.coingecko.com/api/v3/coins/{coin_id.lower()}?localization=false&sparkline=false"
+        res = requests.get(url, timeout=10).json()
         
-        data = res['market_data']
-        price = data['current_price']['usd']
-        change_24h = data['price_change_percentage_24h']
-        ath = data['ath']['usd']
-        market_cap = data['market_cap']['usd']
+        m_data = res['market_data']
         
-        # Duyarlılık Analizi (Sentiment)
-        if change_24h > 7:
-            sentiment = "AŞIRI BOĞA (BULLISH) 🔥"
-        elif change_24h > 2:
-            sentiment = "POZİTİF (UPWARD) 📈"
-        elif change_24h < -7:
-            sentiment = "AŞIRI AYI (BEARISH) 🧊"
-        elif change_24h < -2:
-            sentiment = "NEGATİF (DOWNWARD) 📉"
-        else:
-            sentiment = "NÖTR / YATAY ⚖️"
+        # Güncel Veriler
+        price = m_data['current_price']['usd']
+        change_24h = m_data['price_change_percentage_24h']
+        ath = m_data['ath']['usd']
+        ath_date = m_data['ath_date']['usd'][:10] # Sadece tarih
+        
+        # TARİHSEL DEĞERLER (Mükemmel Detay)
+        change_30d = m_data.get('price_change_percentage_30d', 0)
+        change_200d = m_data.get('price_change_percentage_200d', 0)
+        change_1y = m_data.get('price_change_percentage_1y', 0)
+        
+        # Geçen Yılki Fiyat Tahmini
+        price_1y_ago = price / (1 + (change_1y / 100))
+        
+        # Puanlama Mantığı (0-100)
+        score = 50
+        if change_24h > 0: score += 10
+        if change_1y > 100: score += 20
+        if change_30d > 10: score += 15
         
         analysis = (
-            f"📊 <b>{res['name']} ({res['symbol'].upper()}) Analiz</b>\n"
+            f"🏛️ <b>{res['name']} ({res['symbol'].upper()}) DEEP REPORT</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 <b>Fiyat:</b> ${price:,.2f}\n"
-            f"📈 <b>24s Değişim:</b> %{change_24h:.2f}\n"
-            f"🏛️ <b>Market Hacmi:</b> ${market_cap:,.0f}\n"
-            f"🏔️ <b>Zirve Uzaklığı (ATH):</b> %{abs((price-ath)/ath*100):.1f}\n\n"
-            f"🧠 <b>Derin Duyarlılık:</b> {sentiment}\n"
+            f"💰 <b>Anlık Fiyat:</b> ${price:,.2f}\n"
+            f"📈 <b>24 Saatlik:</b> %{change_24h:.2f}\n"
+            f"📉 <b>30 Günlük:</b> %{change_30d:.2f}\n\n"
+            f"⏳ <b>TARİHSEL KIYASLAMA</b>\n"
+            f"📅 <b>1 Yıl Önce:</b> ~${price_1y_ago:,.2f} (%{change_1y:.1f} değişim)\n"
+            f"🏔️ <b>Zirve (ATH):</b> ${ath:,.2f}\n"
+            f"🗓️ <b>Zirve Tarihi:</b> {ath_date}\n\n"
+            f"🧠 <b>YAPAY ZEKA PUANI:</b> {score}/100\n"
+            f"📢 <b>Sinyal:</b> {'GÜÇLÜ AL ✅' if score > 70 else 'BEKLE/İZLE ⏳' if score > 40 else 'DİKKATLİ OL ⚠️'}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 <i>Veriler CoinGecko üzerinden anlık çekilmiştir.</i>"
+            f"🛸 <i>TeleKrak Pro Analiz Sistemi</i>"
         )
         return analysis
-    except Exception:
-        return "❌ Veri alınamadı. Sembolün doğru olduğundan emin ol (Örn: bitcoin, solana, ripple)."
+    except Exception as e:
+        return f"❌ Analiz başarısız. Lütfen tam adı yazın (Örn: solana, cardano).\nHata: {str(e)[:50]}"
 
-# --- BOT HANDLERS ---
+# --- BOT KOMUTLARI ---
 
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add("💎 Bitcoin", "🚀 Ethereum", "📊 Diğer Analizler", "🛠️ Yardım")
+    markup.add("📊 BTC Analiz", "💎 ETH Analiz", "🔍 Özel Analiz", "📜 Hakkında")
     bot.send_message(
         message.chat.id, 
-        "🚀 <b>TeleKrak Deep Analiz V10</b>\n\nAnaliz etmek istediğin varlığı seçebilir veya bota ismini yazabilirsin.", 
+        "🛡️ <b>TeleKrak Pro Borsaya Hoş Geldiniz.</b>\n\nBu bot, verileri derinlemesine tarar ve geçmiş dönemle kıyaslayarak size bir 'Yatırım Puanı' sunar.", 
         parse_mode='HTML', 
         reply_markup=markup
     )
 
-@bot.message_handler(func=lambda m: m.text == "💎 Bitcoin")
-def btc_analiz(message):
-    bot.send_chat_action(message.chat.id, 'typing')
-    bot.send_message(message.chat.id, get_deep_analysis("bitcoin"), parse_mode='HTML')
+@bot.message_handler(func=lambda m: m.text == "📊 BTC Analiz")
+def btc(message):
+    bot.send_message(message.chat.id, get_pro_analysis("bitcoin"), parse_mode='HTML')
 
-@bot.message_handler(func=lambda m: m.text == "🚀 Ethereum")
-def eth_analiz(message):
-    bot.send_chat_action(message.chat.id, 'typing')
-    bot.send_message(message.chat.id, get_deep_analysis("ethereum"), parse_mode='HTML')
+@bot.message_handler(func=lambda m: m.text == "💎 ETH Analiz")
+def eth(message):
+    bot.send_message(message.chat.id, get_pro_analysis("ethereum"), parse_mode='HTML')
 
-@bot.message_handler(func=lambda m: m.text == "📊 Diğer Analizler")
-def other_analiz(message):
-    msg = bot.send_message(message.chat.id, "Analiz etmek istediğiniz coin adını küçük harflerle yazın (Örn: solana, cardano):")
-    bot.register_next_step_handler(msg, process_custom_analiz)
+@bot.message_handler(func=lambda m: m.text == "🔍 Özel Analiz")
+def custom(message):
+    msg = bot.send_message(message.chat.id, "Analiz edilecek varlığın tam adını gönder (Örn: dogecoin):")
+    bot.register_next_step_handler(msg, process_custom)
 
-def process_custom_analiz(message):
-    bot.send_chat_action(message.chat.id, 'typing')
-    bot.send_message(message.chat.id, get_deep_analysis(message.text), parse_mode='HTML')
+def process_custom(message):
+    bot.send_message(message.chat.id, get_pro_analysis(message.text), parse_mode='HTML')
 
-# --- VERCEL ROUTING ---
+# --- VERCEL CONFIG ---
 
 @app.route('/favicon.ico')
-def favicon():
-    return '', 204
+def favicon(): return '', 204
 
 @app.route('/')
-def index():
-    return "Bot Aktif ve Çalışıyor!"
+def home(): return "Pro Bot Online"
 
 @app.route('/webhook', methods=['POST'])
-def receive_update():
+def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
         bot.process_new_updates([update])
         return '', 200
-    return 'Hata', 403
+    return 'Forbidden', 403
 
 if __name__ == "__main__":
     app.run()
