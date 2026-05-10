@@ -1,2 +1,4 @@
 flask
 pyTelegramBotAPI
+SpeechRecognition
+pydub
