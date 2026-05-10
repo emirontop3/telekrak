@@ -178,7 +178,7 @@ def process(message):
 
         bio = io.BytesIO()
 
-        bio.name = "protected.lua"
+        bio.name = "protected.txt"
 
         bio.write(result.encode())
 
